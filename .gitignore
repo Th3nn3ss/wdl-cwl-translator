@@ -6,3 +6,10 @@ env/
 wdl2cwl.egg-info/
 coverage.xml
 .coverage
+
+
+# My local testing files
+
+local/
+local_test/
+*.tmp

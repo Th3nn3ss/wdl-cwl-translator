@@ -42,6 +42,21 @@ valid_js_identifier = regex.compile(
 # eval is not on the official list of reserved words, but it is a built-in function
 
 
+get_ram_min_js_epilogue_str = (
+    'var memory = "";\n'
+    + 'if(unit==="KiB") memory = value/1024;\n'
+    + 'else if(unit==="MiB") memory = value;\n'
+    + 'else if(unit==="GiB") memory = value*1024;\n'
+    + 'else if(unit==="TiB") memory = value*1024*1024;\n'
+    + 'else if(unit==="B") memory = value/(1024*1024);\n'
+    + 'else if(unit==="KB" || unit==="K") memory = (value*1000)/(1024*1024);\n'
+    + 'else if(unit==="MB" || unit==="M") memory = (value*(1000*1000))/(1024*1024);\n'
+    + 'else if(unit==="GB" || unit==="G") memory = (value*(1000*1000*1000))/(1024*1024);\n'
+    + 'else if(unit==="TB" || unit==="T") memory = (value*(1000*1000*1000*1000))/(1024*1024);\n'
+    + "return parseInt(memory);\n}"
+)
+
+
 def inputs(input_name: str) -> str:
     """Produce a consise, valid CWL expr/param reference lookup string for a given input name."""
     if valid_js_identifier.match(input_name):
@@ -77,7 +92,7 @@ def get_outdir_min(outdir_min: str) -> int:
     return outdir_value
 
 
-def get_ram_min_js(ram_min: str, unit: str) -> str:
+def get_ram_min_js_from_reference(ram_min: str, unit: str) -> str:
     """Get memory requirement for user input."""
     append_str: str = ""
     if unit:
@@ -91,17 +106,25 @@ def get_ram_min_js(ram_min: str, unit: str) -> str:
         + "\nvar value = parseInt("
         + inputs(ram_min)
         + ".match(/[0-9]+/g));\n"
-        + 'var memory = "";\n'
-        + 'if(unit==="KiB") memory = value/1024;\n'
-        + 'else if(unit==="MiB") memory = value;\n'
-        + 'else if(unit==="GiB") memory = value*1024;\n'
-        + 'else if(unit==="TiB") memory = value*1024*1024;\n'
-        + 'else if(unit==="B") memory = value/(1024*1024);\n'
-        + 'else if(unit==="KB" || unit==="K") memory = (value*1000)/(1024*1024);\n'
-        + 'else if(unit==="MB" || unit==="M") memory = (value*(1000*1000))/(1024*1024);\n'
-        + 'else if(unit==="GB" || unit==="G") memory = (value*(1000*1000*1000))/(1024*1024);\n'
-        + 'else if(unit==="TB" || unit==="T") memory = (value*(1000*1000*1000*1000))/(1024*1024);\n'
-        + "return parseInt(memory);\n}"
+        + get_ram_min_js_epilogue_str
+    )
+
+    return js_str
+
+
+def get_ram_min_js_from_function(ram_min_list: List[str], unit: str) -> str:
+    """Get memory requirement for user input from select_first function."""
+    inputs_list = [inputs(input_name) for input_name in ram_min_list]
+    js_str = (
+        '${\nvar unit = "'
+        + unit
+        + '";\n'
+        + "var select_first = (function() {for (const elem of ["
+        + ",".join(inputs_list)
+        + "]) if (elem != null) return elem;}) ();\n"
+        + 'if (select_first == undefined) throw "error! array contains only null values or is empty"\n'
+        + "var value = parseInt(select_first.match(/[0-9]+/g));\n"
+        + get_ram_min_js_epilogue_str
     )
 
     return js_str
@@ -644,11 +667,28 @@ def convert(workflow: str) -> str:
                 if len(ast.task_runtime["memory"]) != temp + 1:
                     unit = ast.task_runtime["memory"][temp + 1 : -1].strip()
                     if input_name in input_names:
-                        ram_min = get_ram_min_js(input_name, unit)
+                        ram_min = get_ram_min_js_from_reference(input_name, unit)
+            elif "~{select_first(" in ast.task_runtime["memory"]:
+                input_names_string = ast.task_runtime["memory"][
+                    ast.task_runtime["memory"].find("[")
+                    + 1 : ast.task_runtime["memory"].find("]")
+                ]
+                unit = ast.task_runtime["memory"][
+                    ast.task_runtime["memory"].index("}") + 1 : -1
+                ].strip()
+                input_names_splitted = input_names_string.split(",")
+                only_given_input_names = [
+                    input_name
+                    for input_name in input_names_splitted
+                    if input_name in input_names
+                ]
+
+                ram_min = get_ram_min_js_from_function(only_given_input_names, unit)
+
             else:
                 ram_min = get_ram_min(ast.task_runtime["memory"])
         else:
-            ram_min = get_ram_min_js(ast.task_runtime["memory"], "")
+            ram_min = get_ram_min_js_from_reference(ast.task_runtime["memory"], "")
 
         requirements.append(
             cwl.ResourceRequirement(

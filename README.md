@@ -84,3 +84,6 @@ tox  # all the code checks
 6. Add the paths of the added WDL and CWL files to `wdl2cwl/tests/test_cwl.py` as an argument under the
   `@pytest.mark.parametrize()` function.
 7. Please run the code checks via `tox`, and fix as many issue as you can on your own. `make format` will fix many things for you!
+
+
+![Alt](https://repobeats.axiom.co/api/embed/99f54fb800484260abe0a7666abe57db96ffc9c4.svg "Repobeats analytics image")
